@@ -4,6 +4,7 @@ import os
 import boto3
 from config import GENERATION_CONFIG
 from utils import get_bedrock_client
+from rag import search_embeddings
 
 client = get_bedrock_client()
 
@@ -37,6 +38,8 @@ def get_model_id(model: str) -> str:
 
 
 def invoke(prompt: str, model: str) -> str:
+    search_result = search_embeddings(prompt)
+
     payload = _create_body(model, prompt)
 
     model_id = get_model_id(model)

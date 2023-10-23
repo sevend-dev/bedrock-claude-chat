@@ -12,6 +12,7 @@ from repositories.model import ContentModel, ConversationModel, MessageModel
 from route_schema import ChatInput, ChatOutput, Content, MessageOutput
 from ulid import ULID
 from utils import get_buffer_string
+from rag import search_embeddings
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -80,7 +81,39 @@ def get_invoke_payload(conversation: ConversationModel, chat_input: ChatInput):
         node_id=chat_input.message.parent_message_id,
         message_map=conversation.message_map,
     )
-    messages.append(chat_input.message)
+    # messages.append(chat_input.message)
+
+    # Search similar embeddings.
+    search_result = search_embeddings(chat_input.message.content.body)
+
+    # Invoke Bedrock
+    PROMPT = """
+    <instruction>
+    あなたは「プロジェクトマネジメントDXクラウドFlagxs」をユーザーにおすすめするAIボットです。
+    ユーザーの抱えている課題に対して、contextで与えられている情報をもとに、Flagxsであればどのように解決できるかを提案します。
+    ただし、質問に対する答えがcontextに書かれていない場合は、正直に「分かりません。」と回答してください。
+    </instruction>
+    <question>
+    {query}
+    </question>
+    <context>
+    {context}
+    </context>
+    """
+    new_message = MessageModel(
+        role="user",
+        content=ContentModel(
+            content_type="text",
+            body=PROMPT.format(
+                query=chat_input.message.content.body, context=search_result
+            ),
+        ),
+        model=chat_input.message.model,
+        children=[],
+        parent=conversation.last_message_id,
+        create_time=datetime.now().timestamp(),
+    )
+    messages.append(new_message)
     prompt = get_buffer_string(messages)
     body = _create_body(chat_input.message.model, prompt)
     model_id = get_model_id(chat_input.message.model)
@@ -118,11 +151,43 @@ def chat(user_id: str, chat_input: ChatInput) -> ChatOutput:
         node_id=chat_input.message.parent_message_id,
         message_map=conversation.message_map,
     )
-    messages.append(chat_input.message)
+    # messages.append(chat_input.message)
+
+    # Search similar embeddings.
+    search_result = search_embeddings(chat_input.message.content.body)
 
     # Invoke Bedrock
+    PROMPT = """
+    <instruction>
+    あなたは親切なAIボットです。
+    ユーザからの質問に対してcontextで与えられている情報をもとに誠実に回答します。
+    ただし、質問に対する答えがcontextに書かれていない場合は、正直に「分かりません。」と回答してください。
+    また、ユーザはcontextと言われても何のことかわからないため、contextという単語に関する言及はしないようにしてください。
+    </instruction>
+    <question>
+    {query}
+    </question>
+    <context>
+    {context}
+    </context>
+    """
+    new_message = MessageModel(
+        role="user",
+        content=ContentModel(
+            content_type="text",
+            body=PROMPT.format(
+                query=chat_input.message.content.body, context=search_result
+            ),
+        ),
+        model=chat_input.message.model,
+        children=[],
+        parent=conversation.last_message_id,
+        create_time=datetime.now().timestamp(),
+    )
+    messages.append(new_message)
     prompt = get_buffer_string(messages)
     reply_txt = invoke(prompt=prompt, model=chat_input.message.model)
+    reply_txt = reply_txt.replace("\n", "")
 
     # Issue id for new assistant message
     assistant_msg_id = str(ULID())
